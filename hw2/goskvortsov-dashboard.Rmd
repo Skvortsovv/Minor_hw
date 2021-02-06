@@ -1,0 +1,77 @@
+---
+title: "Дэшборд для hw2"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: columns
+    vertical_layout: fill
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(readr)
+library(dplyr)
+library(lubridate)
+library(ggplot2)
+library(coin)
+library(rpart)
+kickstarter = read_csv("~/shared/minor2_2020/1-Intro/hw2/kickstarter.csv")
+usd_goals = read_csv("usd_goals.csv")
+
+df = inner_join(kickstarter, usd_goals, by='id')
+df = df %>% mutate(dead_m = as.factor(month(deadline))) %>% mutate(launch_m = as.factor(month(launched)))
+df$launched = date(df$launched)
+df$time_diff = as.numeric(df$deadline - df$launched)
+df$category = as.factor(df$category)
+df$main_category = as.factor(df$main_category)
+df$country = as.factor(df$country)
+df$state = as.factor(df$state)
+df = dplyr::select(df, -deadline, -launched, -name, -goal.x, -goal.y, -currency)
+
+df_games = df[df$main_category=='Games', ]
+projects = data.frame(category=as.factor(unique(df_games$category)), main_category=as.factor(rep('Games', 8)),
+                      backers=c(318, 1680, 1599, 1352, 1273, 207, 1473, 489) , country=as.factor(rep('US', 8)),
+                      usd_goal_real=c(40396, 81614, 84670, 1946, 39202, 39033, 94446, 94446),
+                      dead_m=as.factor(rep(3, 8)), launch_m=as.factor(rep(1, 8)), 
+                      time_diff=c(47, 42, 31, 42, 56, 40, 44, 48))
+df = df %>% as.data.frame(df) %>% dplyr::select(-id)
+
+set.seed(123)
+tree =  rpart(state ~ ., data = df, control=rpart.control(cp=0.0001))
+depth = as.data.frame(printcp(tree)) %>% dplyr::select(xerror, CP) %>% filter(xerror == min(xerror))
+best_tree = prune(tree, cp=depth$CP[1])
+projects$class = predict(best_tree, newdata=projects, type='class')
+projects$probs = as.data.frame(predict(best_tree, newdata=projects, type='prob'))$successful
+best_project = projects %>% filter(class == 'successful') %>% arrange(-probs, usd_goal_real) %>% dplyr::select(category, usd_goal_real, backers)
+best_project = best_project[1, ]
+```
+
+Column {data-width=350}
+-----------------------------------------------------------------------
+
+### Соотношение успеха проектов
+
+```{r}
+ggplot()+
+  geom_bar(data=as.data.frame(prop.table(table(df$state))), aes(x=Var1, y=Freq), stat='identity')+
+  labs(title='Доли успешных и неуспешных проектов \nв датасете kickstarter', 
+       x='Успех', y='Доля', fill = "") + scale_x_discrete(labels=c('Неуспешный', 'Успешный'))
+```
+
+Column {data-width=500}
+-----------------------------------------------------------------------
+
+### Цель финансирования лучшего проекта (в долларах)
+
+```{r}
+valueBox(best_project$usd_goal_real)
+```
+
+### Шанс проекта на успех
+
+```{r, fig.width=8, fig.height=4}
+pos = projects %>% filter(class=='successful') %>% mutate(ismax = category==as.character(best_project$category))
+ggplot()+
+  geom_bar(data=pos, aes(x=category, y=probs, fill=ismax), stat='identity') + coord_cartesian(ylim=c(0.6,1)) +
+  labs(title='Вероятность считать проект успешным', 
+       x='Подкатегория', y='Вероятность', fill = "") + theme(legend.position = "")
+```
