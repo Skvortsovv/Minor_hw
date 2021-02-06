@@ -1,0 +1,74 @@
+---
+title: "Дэшборд для hw1"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: columns
+    vertical_layout: fill
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(ggplot2)
+library(dplyr)
+library(stringr)
+library(R3PO)
+
+
+airline = get_hw1_airline_df()
+airport = get_hw1_airport_df()
+seat = get_hw1_seat_df()
+lounge = get_hw1_lounge_df()
+
+#Main graph
+lounge = lounge %>% mutate(AirportName=str_to_lower(lounge$airport)) %>% mutate(LoungeName=str_remove_all(str_to_lower(lounge$lounge_name), 'review'))
+airport = mutate(airport, AirportName=str_replace_all(airport$airport_name, '-', ' '))
+lounge2 = na.omit(lounge %>% select(wifi_connectivity_rating, AirportName, LoungeName) %>% rename(WifiLounge=1))
+airport2 = na.omit(select(airport, wifi_connectivity_rating, AirportName) %>% rename(WifiAir=1))
+jo = inner_join(airport2, lounge2, by='AirportName')
+answer = jo %>% group_by(LoungeName) %>% summarise(av_wifi_lounge=mean(WifiLounge), av_wifi_air=mean(WifiAir)) %>% 
+  filter((av_wifi_lounge>av_wifi_air) & (LoungeName != 'business'))
+
+# Secondary graph
+responses_wid = seat %>% select(seat_layout, seat_width_rating) %>% 
+  mutate(PassageNum = str_count(str_to_lower(seat_layout), 'x') + str_count(seat_layout, '-')) %>% 
+  select(-seat_layout) %>% filter(PassageNum != 0)
+```
+
+Column {data-width=550}
+-----------------------------------------------------------------------
+
+### Сравнение качества wi-fi
+
+```{r}
+ggplot()+
+  geom_bar(data=answer, aes(x=LoungeName, y=av_wifi_lounge, fill='blue'), stat='identity') +
+  geom_bar(data=answer, aes(x=LoungeName, y=av_wifi_air, fill='red'), stat='identity') +
+  labs(title='Сравнение качества \nwi-fi в аэропортах \nи лаунж-зонах', 
+       x='Оценки качества wi-fi', y='Название аэропорта', fill = "") +
+  scale_fill_discrete(labels=c('Лаунж-зона', 'Аэропорт')) +
+  theme(legend.position="bottom") +
+  coord_flip()
+```
+
+Column {data-width=300}
+-----------------------------------------------------------------------
+
+### Доверительные интервалы среднего для хороших отзывов среди выходных и рабочих дней
+
+```{r}
+valueBox("[5,755023:6,667834] и [6,061787:6,503897]")
+```
+
+### Сравнение оценки ширины кресел
+
+```{r, fig.width=8, fig.height=4}
+ggplot()+
+  geom_boxplot(data=responses_wid, aes(x=factor(PassageNum), y=seat_width_rating)) +
+  labs(title='Оценка ширины кресел \nв зависимости от количества проходов в самолете', y='Оценки ширины кресел', x='Количество проходов в самолете')
+```
+
+### Доверительные интервалы среднего для оценок ширины кресел среди самолетов с одним и двумя проходами
+
+```{r}
+valueBox("[2.301948:3.179534] и [2.625196:3.041471]")
+```
